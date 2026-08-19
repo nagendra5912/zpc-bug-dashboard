@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Bug, Plus, Download, Search, X, Trash2, CheckCircle2, Circle, Clock3, Loader2, UserCircle2 } from "lucide-react";
+import { Bug, Plus, Download, Search, X, Trash2, CheckCircle2, Circle, Clock3, Loader2, UserCircle2, Pencil } from "lucide-react";
 import { supabase } from "./supabase";
 
 const SEVERITIES = [
@@ -58,6 +58,7 @@ export default function BugDashboard() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState("");
   const [search, setSearch] = useState("");
@@ -158,42 +159,81 @@ export default function BugDashboard() {
       return;
     }
     setFormError("");
-    const id = `BUG-${String(nextIdRef.current).padStart(4, "0")}`;
-    nextIdRef.current += 1;
-    const newBug = {
-      id,
-      ...form,
+    const payload = {
       title: form.title.trim(),
       description: form.description.trim(),
       module: form.module.trim(),
+      severity: form.severity,
+      status: form.status,
       reporter: form.reporter.trim(),
       assignee: form.assignee.trim(),
-      createdAt: new Date().toISOString(),
     };
     setSaving(true);
     try {
-      const { error } = await supabase.from("bugs").insert({
-        id: newBug.id,
-        title: newBug.title,
-        description: newBug.description,
-        module: newBug.module,
-        severity: newBug.severity,
-        status: newBug.status,
-        reporter: newBug.reporter,
-        assignee: newBug.assignee,
-        created_at: newBug.createdAt,
-      });
-      if (error) throw error;
+      if (editingId) {
+        const previous = bugs;
+        const updatedAt = new Date().toISOString();
+        setBugs((current) =>
+          current.map((b) => (b.id === editingId ? { ...b, ...payload, updated_at: updatedAt } : b))
+        );
+        const { error } = await supabase
+          .from("bugs")
+          .update({ ...payload, updated_at: updatedAt })
+          .eq("id", editingId);
+        if (error) {
+          setBugs(previous);
+          throw error;
+        }
+      } else {
+        const id = `BUG-${String(nextIdRef.current).padStart(4, "0")}`;
+        nextIdRef.current += 1;
+        const newBug = {
+          id,
+          ...payload,
+          createdAt: new Date().toISOString(),
+        };
+        const { error } = await supabase.from("bugs").insert({
+          id: newBug.id,
+          ...payload,
+          created_at: newBug.createdAt,
+        });
+        if (error) throw error;
+        setBugs((current) => [newBug, ...current]);
+      }
 
-      setBugs((current) => [newBug, ...current]);
       setForm(emptyForm);
+      setEditingId(null);
       setShowForm(false);
     } catch (e) {
       console.error(e);
-      setError("Couldn't save the bug. Please try again.");
+      setError(editingId ? "Couldn't update the bug. Please try again." : "Couldn't save the bug. Please try again.");
     } finally {
       setSaving(false);
     }
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+    setFormError("");
+  }
+
+  function startEdit(bug) {
+    setEditingId(bug.id);
+    setForm({
+      title: bug.title || "",
+      description: bug.description || "",
+      module: bug.module || "",
+      severity: bug.severity || "Medium",
+      status: bug.status || "Open",
+      reporter: bug.reporter || "",
+      assignee: bug.assignee || "",
+    });
+    setFormError("");
+    setShowForm(true);
+    setSelectedBugId(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function updateStatus(id, status) {
@@ -336,7 +376,7 @@ export default function BugDashboard() {
         .bd-filter-chips { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; flex: 1; }
         .bd-row { cursor: pointer; }
         .bd-row:hover { border-color: #3A4556; background: #1A212C; }
-        .bd-cols { display: grid; grid-template-columns: 90px minmax(160px, 0.7fr) minmax(220px, 1.3fr) 88px 148px 150px 32px; gap: 14px; align-items: start; min-width: 1040px; }
+        .bd-cols { display: grid; grid-template-columns: 90px minmax(160px, 0.7fr) minmax(220px, 1.3fr) 88px 148px 150px 64px; gap: 14px; align-items: start; min-width: 1070px; }
         .bd-list-head { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); padding: 0 14px 8px 18px; }
         .bd-overlay { position: fixed; inset: 0; background: rgba(8, 10, 14, 0.72); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 40; }
         .bd-detail { width: min(560px, 100%); max-height: min(86vh, 720px); overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
@@ -362,7 +402,12 @@ export default function BugDashboard() {
             <button className="bd-btn" onClick={exportExcel}>
               <Download size={14} /> Export .xlsx
             </button>
-            <button className="bd-btn bd-btn-primary" onClick={() => setShowForm((s) => !s)}>
+            <button className="bd-btn bd-btn-primary" onClick={() => {
+              setEditingId(null);
+              setForm(emptyForm);
+              setFormError("");
+              setShowForm((s) => !s);
+            }}>
               <Plus size={14} /> Report bug
             </button>
           </div>
@@ -393,8 +438,10 @@ export default function BugDashboard() {
         {showForm && (
           <div style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, marginBottom: 22 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <h2 style={{ fontFamily: "var(--display-font)", fontSize: 15, fontWeight: 600, margin: 0 }}>Report a bug</h2>
-              <button onClick={() => { setShowForm(false); setFormError(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)" }}>
+              <h2 style={{ fontFamily: "var(--display-font)", fontSize: 15, fontWeight: 600, margin: 0 }}>
+                {editingId ? `Edit ${editingId}` : "Report a bug"}
+              </h2>
+              <button onClick={closeForm} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)" }}>
                 <X size={16} />
               </button>
             </div>
@@ -418,6 +465,12 @@ export default function BugDashboard() {
                 </select>
               </div>
               <div>
+                <label style={{ fontSize: 12, color: "var(--text-dim)", display: "block", marginBottom: 5 }}>Status</label>
+                <select className="bd-select" style={{ width: "100%" }} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                  {STATUSES.map((s) => <option key={s.id} value={s.id}>{s.id}</option>)}
+                </select>
+              </div>
+              <div>
                 <label style={{ fontSize: 12, color: "var(--text-dim)", display: "block", marginBottom: 5 }}>Reporter</label>
                 <input className="bd-input" placeholder="Your name" value={form.reporter} onChange={(e) => setForm({ ...form, reporter: e.target.value })} />
               </div>
@@ -428,9 +481,10 @@ export default function BugDashboard() {
             </div>
             {formError && <p style={{ color: "#E5484D", fontSize: 13, margin: "0 0 10px" }}>{formError}</p>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button className="bd-btn" onClick={() => { setShowForm(false); setForm(emptyForm); setFormError(""); }}>Cancel</button>
+              <button className="bd-btn" onClick={closeForm}>Cancel</button>
               <button className="bd-btn bd-btn-primary" onClick={handleSubmit} disabled={saving}>
-                {saving ? <Loader2 size={14} className="bd-spin" /> : <Plus size={14} />} Log bug
+                {saving ? <Loader2 size={14} className="bd-spin" /> : editingId ? <Pencil size={14} /> : <Plus size={14} />}
+                {editingId ? "Save changes" : "Log bug"}
               </button>
             </div>
           </div>
@@ -554,9 +608,14 @@ export default function BugDashboard() {
                         {STATUSES.map((s) => <option key={s.id} value={s.id}>{s.id}</option>)}
                       </select>
                     </div>
-                    <button onClick={(e) => { e.stopPropagation(); deleteBug(bug.id); if (selectedBugId === bug.id) setSelectedBugId(null); }} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }}>
-                      <Trash2 size={14} />
-                    </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 2 }} onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => startEdit(bug)} title="Edit" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }}>
+                        <Pencil size={14} />
+                      </button>
+                      <button onClick={() => { deleteBug(bug.id); if (selectedBugId === bug.id) setSelectedBugId(null); }} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -588,9 +647,14 @@ export default function BugDashboard() {
                       <p style={{ margin: 0, fontFamily: "var(--mono-font)", fontSize: 12, color: "var(--text-dim)" }}>{bug.id}</p>
                       <h2 id="bug-detail-title" style={{ fontFamily: "var(--display-font)", fontSize: 18, fontWeight: 600, margin: "6px 0 0" }}>{bug.title}</h2>
                     </div>
-                    <button onClick={() => setSelectedBugId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }} aria-label="Close details">
-                      <X size={18} />
-                    </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                      <button onClick={() => startEdit(bug)} className="bd-btn" style={{ padding: "6px 10px" }}>
+                        <Pencil size={14} /> Edit
+                      </button>
+                      <button onClick={() => setSelectedBugId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }} aria-label="Close details">
+                        <X size={18} />
+                      </button>
+                    </div>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
                     <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 999, background: sev.bg, color: sev.color }}>{bug.severity}</span>

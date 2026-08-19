@@ -336,7 +336,7 @@ export default function BugDashboard() {
         .bd-filter-chips { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; flex: 1; }
         .bd-row { cursor: pointer; }
         .bd-row:hover { border-color: #3A4556; background: #1A212C; }
-        .bd-cols { display: grid; grid-template-columns: 90px minmax(180px, 1fr) 88px 148px 150px 32px; gap: 14px; align-items: start; min-width: 820px; }
+        .bd-cols { display: grid; grid-template-columns: 90px minmax(160px, 0.7fr) minmax(220px, 1.3fr) 88px 148px 150px 32px; gap: 14px; align-items: start; min-width: 1040px; }
         .bd-list-head { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); padding: 0 14px 8px 18px; }
         .bd-overlay { position: fixed; inset: 0; background: rgba(8, 10, 14, 0.72); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 40; }
         .bd-detail { width: min(560px, 100%); max-height: min(86vh, 720px); overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
@@ -344,7 +344,7 @@ export default function BugDashboard() {
         .bd-scrollbar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
       `}</style>
 
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px 60px" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "28px 20px 60px" }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 22, flexWrap: "wrap", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -482,7 +482,8 @@ export default function BugDashboard() {
           <div className="bd-scrollbar" style={{ overflowX: "auto" }}>
             <div className="bd-cols bd-list-head">
               <span>ID</span>
-              <span>Bug</span>
+              <span>Title</span>
+              <span>Description</span>
               <span>Severity</span>
               <span>Assignee</span>
               <span>Status</span>
@@ -505,15 +506,13 @@ export default function BugDashboard() {
                     <div style={{ fontFamily: "var(--mono-font)", fontSize: 12, color: "var(--text-dim)", paddingTop: 2 }}>{bug.id}</div>
                     <div>
                       <p style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>{bug.title}</p>
-                      {bug.description ? (
-                        <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.45, color: "var(--text)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                          {bug.description}
-                        </p>
-                      ) : null}
                       <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-dim)" }}>
                         {bug.module || "General"}{bug.reporter ? ` · reported by ${bug.reporter}` : ""}
                       </p>
                     </div>
+                    <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45, color: bug.description ? "var(--text)" : "var(--text-dim)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                      {bug.description || "—"}
+                    </p>
                     <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 999, background: sev.bg, color: sev.color, whiteSpace: "nowrap", alignSelf: "start" }}>
                       {bug.severity}
                     </span>

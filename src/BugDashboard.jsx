@@ -66,6 +66,7 @@ export default function BugDashboard() {
   const [assigneeFilter, setAssigneeFilter] = useState("All");
   const [editingAssignee, setEditingAssignee] = useState(null);
   const [assigneeDraft, setAssigneeDraft] = useState("");
+  const [selectedBugId, setSelectedBugId] = useState(null);
   const nextIdRef = useRef(1);
 
   async function loadBugs() {
@@ -122,6 +123,15 @@ export default function BugDashboard() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedBugId) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setSelectedBugId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedBugId]);
 
   async function persist(updated) {
     setSaving(true);
@@ -252,7 +262,7 @@ export default function BugDashboard() {
       if (assigneeFilter !== "All" && assigneeFilter !== "Unassigned" && b.assignee !== assigneeFilter) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
-        const hay = `${b.title} ${b.module} ${b.reporter} ${b.assignee} ${b.id}`.toLowerCase();
+        const hay = `${b.title} ${b.description} ${b.module} ${b.reporter} ${b.assignee} ${b.id}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -321,6 +331,13 @@ export default function BugDashboard() {
         .bd-btn-primary:hover { background: #4A7CDE; }
         .bd-chip { padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text-dim); font-family: var(--body-font); }
         .bd-chip.active { background: var(--panel-alt); color: var(--text); border-color: var(--accent); }
+        .bd-filter-label { width: 76px; flex-shrink: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); }
+        .bd-filter-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+        .bd-filter-chips { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; flex: 1; }
+        .bd-row { cursor: pointer; }
+        .bd-row:hover { border-color: #3A4556; background: #1A212C; }
+        .bd-overlay { position: fixed; inset: 0; background: rgba(8, 10, 14, 0.72); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 40; }
+        .bd-detail { width: min(560px, 100%); max-height: min(86vh, 720px); overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
         .bd-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .bd-scrollbar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
       `}</style>
@@ -418,26 +435,35 @@ export default function BugDashboard() {
         )}
 
         {/* Filters */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 16 }}>
-          <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 320 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+          <div style={{ position: "relative", width: "100%" }}>
             <Search size={14} color="var(--text-dim)" style={{ position: "absolute", left: 10, top: 10 }} />
             <input className="bd-input" style={{ paddingLeft: 30 }} placeholder="Search bugs, module, reporter..." value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {["All", ...STATUSES.map((s) => s.id)].map((s) => (
-              <button key={s} className={`bd-chip ${statusFilter === s ? "active" : ""}`} onClick={() => setStatusFilter(s)}>{s}</button>
-            ))}
+          <div className="bd-filter-row">
+            <span className="bd-filter-label">Status</span>
+            <div className="bd-filter-chips">
+              {["All", ...STATUSES.map((s) => s.id)].map((s) => (
+                <button key={s} className={`bd-chip ${statusFilter === s ? "active" : ""}`} onClick={() => setStatusFilter(s)}>{s}</button>
+              ))}
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {["All", ...SEVERITIES.map((s) => s.id)].map((s) => (
-              <button key={s} className={`bd-chip ${severityFilter === s ? "active" : ""}`} onClick={() => setSeverityFilter(s)}>{s}</button>
-            ))}
+          <div className="bd-filter-row">
+            <span className="bd-filter-label">Severity</span>
+            <div className="bd-filter-chips">
+              {["All", ...SEVERITIES.map((s) => s.id)].map((s) => (
+                <button key={s} className={`bd-chip ${severityFilter === s ? "active" : ""}`} onClick={() => setSeverityFilter(s)}>{s}</button>
+              ))}
+            </div>
           </div>
           {assignees.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {["All", "Unassigned", ...assignees].map((s) => (
-                <button key={s} className={`bd-chip ${assigneeFilter === s ? "active" : ""}`} onClick={() => setAssigneeFilter(s)}>{s}</button>
-              ))}
+            <div className="bd-filter-row">
+              <span className="bd-filter-label">People</span>
+              <div className="bd-filter-chips">
+                {["All", "Unassigned", ...assignees].map((s) => (
+                  <button key={s} className={`bd-chip ${assigneeFilter === s ? "active" : ""}`} onClick={() => setAssigneeFilter(s)}>{s}</button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -457,7 +483,12 @@ export default function BugDashboard() {
               const st = statusMeta(bug.status);
               const StIcon = st.icon;
               return (
-                <div key={bug.id} style={{ display: "flex", background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+                <div
+                  key={bug.id}
+                  className="bd-row"
+                  onClick={() => setSelectedBugId(bug.id)}
+                  style={{ display: "flex", background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}
+                >
                   <div style={{ width: 4, background: sev.color, flexShrink: 0 }} />
                   <div style={{ flex: 1, padding: "12px 14px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
                     <div style={{ minWidth: 90, fontFamily: "var(--mono-font)", fontSize: 12, color: "var(--text-dim)" }}>{bug.id}</div>
@@ -478,13 +509,14 @@ export default function BugDashboard() {
                         style={{ width: 130, padding: "5px 8px", fontSize: 12 }}
                         placeholder="Assign to..."
                         value={assigneeDraft}
+                        onClick={(e) => e.stopPropagation()}
                         onChange={(e) => setAssigneeDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") updateAssignee(bug.id, assigneeDraft); if (e.key === "Escape") setEditingAssignee(null); }}
                         onBlur={() => updateAssignee(bug.id, assigneeDraft)}
                       />
                     ) : (
                       <button
-                        onClick={() => { setEditingAssignee(bug.id); setAssigneeDraft(bug.assignee || ""); }}
+                        onClick={(e) => { e.stopPropagation(); setEditingAssignee(bug.id); setAssigneeDraft(bug.assignee || ""); }}
                         title="Click to assign"
                         style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "1px solid var(--border)", borderRadius: 999, padding: "3px 10px 3px 3px", cursor: "pointer" }}
                       >
@@ -501,13 +533,13 @@ export default function BugDashboard() {
                       </button>
                     )}
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5 }} onClick={(e) => e.stopPropagation()}>
                       <StIcon size={13} color={st.color} />
                       <select className="bd-select" style={{ padding: "4px 8px", fontSize: 12 }} value={bug.status} onChange={(e) => updateStatus(bug.id, e.target.value)}>
                         {STATUSES.map((s) => <option key={s.id} value={s.id}>{s.id}</option>)}
                       </select>
                     </div>
-                    <button onClick={() => deleteBug(bug.id)} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }}>
+                    <button onClick={(e) => { e.stopPropagation(); deleteBug(bug.id); if (selectedBugId === bug.id) setSelectedBugId(null); }} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }}>
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -516,6 +548,51 @@ export default function BugDashboard() {
             })}
           </div>
         )}
+
+        {selectedBugId && (() => {
+          const bug = bugs.find((b) => b.id === selectedBugId);
+          if (!bug) return null;
+          const sev = sevMeta(bug.severity);
+          const st = statusMeta(bug.status);
+          const created = bug.createdAt || bug.created_at;
+          const updated = bug.updated_at;
+          const field = (label, value) => (
+            <div>
+              <p style={{ margin: "0 0 4px", fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</p>
+              <p style={{ margin: 0, fontSize: 14, color: "var(--text)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{value || "—"}</p>
+            </div>
+          );
+          return (
+            <div className="bd-overlay" onClick={() => setSelectedBugId(null)}>
+              <div className="bd-detail bd-scrollbar" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="bug-detail-title">
+                <div style={{ height: 4, background: sev.color }} />
+                <div style={{ padding: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
+                    <div>
+                      <p style={{ margin: 0, fontFamily: "var(--mono-font)", fontSize: 12, color: "var(--text-dim)" }}>{bug.id}</p>
+                      <h2 id="bug-detail-title" style={{ fontFamily: "var(--display-font)", fontSize: 18, fontWeight: 600, margin: "6px 0 0" }}>{bug.title}</h2>
+                    </div>
+                    <button onClick={() => setSelectedBugId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }} aria-label="Close details">
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+                    <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 999, background: sev.bg, color: sev.color }}>{bug.severity}</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--border)", color: st.color }}>{bug.status}</span>
+                  </div>
+                  <div style={{ display: "grid", gap: 14 }}>
+                    {field("Description", bug.description)}
+                    {field("Module", bug.module)}
+                    {field("Reporter", bug.reporter)}
+                    {field("Assignee", bug.assignee)}
+                    {field("Created", created ? new Date(created).toLocaleString() : "")}
+                    {field("Updated", updated ? new Date(updated).toLocaleString() : "")}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         <p style={{ fontSize: 11, color: "var(--text-dim)", textAlign: "center", marginTop: 24 }}>
           This log is shared with everyone who opens this dashboard. Use "Export .xlsx" any time to download the current view as an Excel file.

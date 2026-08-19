@@ -68,6 +68,7 @@ export default function BugDashboard() {
   const [editingAssignee, setEditingAssignee] = useState(null);
   const [assigneeDraft, setAssigneeDraft] = useState("");
   const [selectedBugId, setSelectedBugId] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
   const nextIdRef = useRef(1);
 
   async function loadBugs() {
@@ -126,13 +127,15 @@ export default function BugDashboard() {
   }, []);
 
   useEffect(() => {
-    if (!selectedBugId) return undefined;
+    if (!selectedBugId && !pendingDelete) return undefined;
     const onKey = (e) => {
-      if (e.key === "Escape") setSelectedBugId(null);
+      if (e.key !== "Escape") return;
+      if (pendingDelete) setPendingDelete(null);
+      else setSelectedBugId(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedBugId]);
+  }, [selectedBugId, pendingDelete]);
 
   async function persist(updated) {
     setSaving(true);
@@ -279,6 +282,8 @@ export default function BugDashboard() {
     setError("");
     const previous = bugs;
     setBugs((current) => current.filter((b) => b.id !== id));
+    setPendingDelete(null);
+    if (selectedBugId === id) setSelectedBugId(null);
     try {
       const { error } = await supabase.from("bugs").delete().eq("id", id);
       if (error) throw error;
@@ -379,6 +384,9 @@ export default function BugDashboard() {
         .bd-cols { display: grid; grid-template-columns: 90px minmax(160px, 0.7fr) minmax(220px, 1.3fr) 88px 148px 150px 64px; gap: 14px; align-items: start; min-width: 1070px; }
         .bd-list-head { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); padding: 0 14px 8px 18px; }
         .bd-overlay { position: fixed; inset: 0; background: rgba(8, 10, 14, 0.72); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 40; }
+        .bd-overlay-confirm { z-index: 50; }
+        .bd-btn-danger { background: #E5484D; border-color: #E5484D; color: #fff; }
+        .bd-btn-danger:hover { background: #C73D42; }
         .bd-detail { width: min(560px, 100%); max-height: min(86vh, 720px); overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
         .bd-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .bd-scrollbar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -612,7 +620,7 @@ export default function BugDashboard() {
                       <button onClick={() => startEdit(bug)} title="Edit" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }}>
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => { deleteBug(bug.id); if (selectedBugId === bug.id) setSelectedBugId(null); }} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }}>
+                      <button onClick={() => setPendingDelete(bug)} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-dim)", padding: 4 }}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -673,6 +681,28 @@ export default function BugDashboard() {
             </div>
           );
         })()}
+
+        {pendingDelete && (
+          <div className="bd-overlay bd-overlay-confirm" onClick={() => setPendingDelete(null)}>
+            <div className="bd-detail" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="delete-confirm-title">
+              <div style={{ padding: 20 }}>
+                <h2 id="delete-confirm-title" style={{ fontFamily: "var(--display-font)", fontSize: 17, fontWeight: 600, margin: "0 0 8px" }}>
+                  Delete this bug?
+                </h2>
+                <p style={{ margin: "0 0 16px", fontSize: 14, color: "var(--text-dim)", lineHeight: 1.5 }}>
+                  Make sure you want to delete <span style={{ fontFamily: "var(--mono-font)", color: "var(--text)" }}>{pendingDelete.id}</span>
+                  {pendingDelete.title ? ` — ${pendingDelete.title}` : ""}. This cannot be undone.
+                </p>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button className="bd-btn" onClick={() => setPendingDelete(null)}>Cancel</button>
+                  <button className="bd-btn bd-btn-danger" onClick={() => deleteBug(pendingDelete.id)}>
+                    <Trash2 size={14} /> Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <p style={{ fontSize: 11, color: "var(--text-dim)", textAlign: "center", marginTop: 24 }}>
           This log is shared with everyone who opens this dashboard. Use "Export .xlsx" any time to download the current view as an Excel file.

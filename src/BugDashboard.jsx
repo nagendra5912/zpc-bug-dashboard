@@ -336,6 +336,8 @@ export default function BugDashboard() {
         .bd-filter-chips { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; flex: 1; }
         .bd-row { cursor: pointer; }
         .bd-row:hover { border-color: #3A4556; background: #1A212C; }
+        .bd-cols { display: grid; grid-template-columns: 90px minmax(180px, 1fr) 88px 148px 150px 32px; gap: 14px; align-items: start; min-width: 820px; }
+        .bd-list-head { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); padding: 0 14px 8px 18px; }
         .bd-overlay { position: fixed; inset: 0; background: rgba(8, 10, 14, 0.72); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 40; }
         .bd-detail { width: min(560px, 100%); max-height: min(86vh, 720px); overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
         .bd-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
@@ -477,7 +479,16 @@ export default function BugDashboard() {
             <p style={{ margin: 0, fontSize: 14 }}>{bugs.length === 0 ? "No bugs logged yet. Report the first one." : "No bugs match these filters."}</p>
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="bd-scrollbar" style={{ overflowX: "auto" }}>
+            <div className="bd-cols bd-list-head">
+              <span>ID</span>
+              <span>Bug</span>
+              <span>Severity</span>
+              <span>Assignee</span>
+              <span>Status</span>
+              <span />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {filtered.map((bug) => {
               const sev = sevMeta(bug.severity);
               const st = statusMeta(bug.status);
@@ -490,9 +501,9 @@ export default function BugDashboard() {
                   style={{ display: "flex", background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}
                 >
                   <div style={{ width: 4, background: sev.color, flexShrink: 0 }} />
-                  <div style={{ flex: 1, padding: "12px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 14 }}>
-                    <div style={{ minWidth: 90, fontFamily: "var(--mono-font)", fontSize: 12, color: "var(--text-dim)" }}>{bug.id}</div>
-                    <div style={{ flex: "1 1 240px", minWidth: 180 }}>
+                  <div className="bd-cols" style={{ flex: 1, padding: "12px 14px" }}>
+                    <div style={{ fontFamily: "var(--mono-font)", fontSize: 12, color: "var(--text-dim)", paddingTop: 2 }}>{bug.id}</div>
+                    <div>
                       <p style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>{bug.title}</p>
                       {bug.description ? (
                         <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.45, color: "var(--text)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -503,7 +514,7 @@ export default function BugDashboard() {
                         {bug.module || "General"}{bug.reporter ? ` · reported by ${bug.reporter}` : ""}
                       </p>
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 999, background: sev.bg, color: sev.color, whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 999, background: sev.bg, color: sev.color, whiteSpace: "nowrap", alignSelf: "start" }}>
                       {bug.severity}
                     </span>
 
@@ -511,7 +522,7 @@ export default function BugDashboard() {
                       <input
                         autoFocus
                         className="bd-input"
-                        style={{ width: 130, padding: "5px 8px", fontSize: 12 }}
+                        style={{ width: "100%", padding: "5px 8px", fontSize: 12 }}
                         placeholder="Assign to..."
                         value={assigneeDraft}
                         onClick={(e) => e.stopPropagation()}
@@ -523,7 +534,7 @@ export default function BugDashboard() {
                       <button
                         onClick={(e) => { e.stopPropagation(); setEditingAssignee(bug.id); setAssigneeDraft(bug.assignee || ""); }}
                         title="Click to assign"
-                        style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "1px solid var(--border)", borderRadius: 999, padding: "3px 10px 3px 3px", cursor: "pointer" }}
+                        style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "1px solid var(--border)", borderRadius: 999, padding: "3px 10px 3px 3px", cursor: "pointer", alignSelf: "start" }}
                       >
                         {bug.assignee ? (
                           <span style={{ width: 18, height: 18, borderRadius: "50%", background: avatarColor(bug.assignee), color: "#0E1216", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -551,6 +562,7 @@ export default function BugDashboard() {
                 </div>
               );
             })}
+            </div>
           </div>
         )}
 

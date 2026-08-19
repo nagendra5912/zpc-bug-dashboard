@@ -10,9 +10,11 @@ Anyone with the URL can add, edit, and delete bugs. Keep the link internal.
 
 ## One-time Supabase setup
 
-1. Open [Supabase SQL Editor](https://supabase.com/dashboard/project/wockvuodtrxslvegdzpr/sql/new).
+1. Open [Supabase SQL Editor](https://supabase.com/dashboard/project/wockvuodtrxslvegdzpr/sql/new) (not a local Postgres client).
 2. Paste `supabase.sql` from this repo and **Run**.
 3. Confirm Project URL is `https://wockvuodtrxslvegdzpr.supabase.co`.
+
+If you see `role "anon" does not exist`, you ran the old script against a non-Supabase Postgres connection. Use the SQL Editor link above, or re-run the updated `supabase.sql` (it no longer depends on the `anon` role).
 
 This app is Vite. Use these names on Vercel (not `NEXT_PUBLIC_*`):
 

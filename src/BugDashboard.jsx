@@ -490,11 +490,16 @@ export default function BugDashboard() {
                   style={{ display: "flex", background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}
                 >
                   <div style={{ width: 4, background: sev.color, flexShrink: 0 }} />
-                  <div style={{ flex: 1, padding: "12px 14px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
+                  <div style={{ flex: 1, padding: "12px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 14 }}>
                     <div style={{ minWidth: 90, fontFamily: "var(--mono-font)", fontSize: 12, color: "var(--text-dim)" }}>{bug.id}</div>
                     <div style={{ flex: "1 1 240px", minWidth: 180 }}>
                       <p style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>{bug.title}</p>
-                      <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-dim)" }}>
+                      {bug.description ? (
+                        <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.45, color: "var(--text)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                          {bug.description}
+                        </p>
+                      ) : null}
+                      <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-dim)" }}>
                         {bug.module || "General"}{bug.reporter ? ` · reported by ${bug.reporter}` : ""}
                       </p>
                     </div>

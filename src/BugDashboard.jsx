@@ -142,7 +142,7 @@ export default function BugDashboard() {
     }
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!form.title.trim()) {
       setFormError("Enter a title for the bug.");
       return;

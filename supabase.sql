@@ -1,10 +1,10 @@
--- Run this once.
+-- Run this once (or re-run after updates).
 -- Best place: Supabase Dashboard → SQL Editor
 -- (https://supabase.com/dashboard/project/wockvuodtrxslvegdzpr/sql/new)
 --
 -- If you run it in DBeaver / DataGrip against a normal Postgres URL,
 -- the Supabase roles "anon" / "authenticated" often do not exist.
--- This script no longer requires those roles.
+-- This script no longer requires those roles for table policies.
 
 create table if not exists public.bugs (
   id text primary key,
@@ -17,9 +17,14 @@ create table if not exists public.bugs (
     check (status in ('Open', 'In Progress', 'Resolved', 'Closed')),
   reporter text default '',
   assignee text default '',
+  screenshot_urls jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Existing projects: add column if the table already exists without it.
+alter table public.bugs
+  add column if not exists screenshot_urls jsonb not null default '[]'::jsonb;
 
 alter table public.bugs enable row level security;
 
@@ -70,3 +75,41 @@ exception
   when undefined_object then null;
   when duplicate_object then null;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Screenshots: use Supabase Storage (not Vercel). Free plan includes ~1 GB.
+-- Bucket is public-read so <img> tags work with the anon key.
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'bug-screenshots',
+  'bug-screenshots',
+  true,
+  5242880,
+  array['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "bug_screenshots_select_public" on storage.objects;
+create policy "bug_screenshots_select_public"
+on storage.objects for select
+using (bucket_id = 'bug-screenshots');
+
+drop policy if exists "bug_screenshots_insert_public" on storage.objects;
+create policy "bug_screenshots_insert_public"
+on storage.objects for insert
+with check (bucket_id = 'bug-screenshots');
+
+drop policy if exists "bug_screenshots_update_public" on storage.objects;
+create policy "bug_screenshots_update_public"
+on storage.objects for update
+using (bucket_id = 'bug-screenshots')
+with check (bucket_id = 'bug-screenshots');
+
+drop policy if exists "bug_screenshots_delete_public" on storage.objects;
+create policy "bug_screenshots_delete_public"
+on storage.objects for delete
+using (bucket_id = 'bug-screenshots');

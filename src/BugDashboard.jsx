@@ -1,6 +1,15 @@
-import { useState, useEffect, useMemo, useRef } from "react";
-import { Bug, Plus, Download, Search, X, Trash2, CheckCircle2, Circle, Clock3, Loader2, UserCircle2, Pencil } from "lucide-react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { Bug, Plus, Download, Search, X, Trash2, CheckCircle2, Circle, Clock3, Loader2, UserCircle2, Pencil, ImagePlus } from "lucide-react";
 import { supabase } from "./supabase";
+import {
+  MAX_SCREENSHOTS,
+  normalizeScreenshotUrls,
+  validateScreenshotFile,
+  uploadScreenshot,
+  deleteScreenshotUrls,
+  ensureScreenshotStorageRoom,
+  storagePathFromPublicUrl,
+} from "./screenshots";
 
 const SEVERITIES = [
   { id: "Critical", color: "#E5484D", bg: "#2A1315" },
@@ -69,7 +78,69 @@ export default function BugDashboard() {
   const [assigneeDraft, setAssigneeDraft] = useState("");
   const [selectedBugId, setSelectedBugId] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [formScreenshots, setFormScreenshots] = useState([]);
+  const [removedScreenshotUrls, setRemovedScreenshotUrls] = useState([]);
+  const [lightboxUrl, setLightboxUrl] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef(null);
   const nextIdRef = useRef(1);
+
+  const revokePreview = (item) => {
+    if (item?.file && item.previewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(item.previewUrl);
+    }
+  };
+
+  const clearFormScreenshots = useCallback(() => {
+    setFormScreenshots((current) => {
+      current.forEach(revokePreview);
+      return [];
+    });
+    setRemovedScreenshotUrls([]);
+  }, []);
+
+  const addScreenshotFiles = useCallback((fileList) => {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length) return;
+
+    setFormError("");
+    setFormScreenshots((current) => {
+      const room = MAX_SCREENSHOTS - current.length;
+      if (room <= 0) {
+        setFormError(`You can attach up to ${MAX_SCREENSHOTS} screenshots per bug.`);
+        return current;
+      }
+
+      const next = [...current];
+      for (const file of files.slice(0, room)) {
+        const err = validateScreenshotFile(file);
+        if (err) {
+          setFormError(err);
+          continue;
+        }
+        next.push({
+          localId: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          previewUrl: URL.createObjectURL(file),
+          file,
+        });
+      }
+      if (files.length > room) {
+        setFormError(`Only ${MAX_SCREENSHOTS} screenshots allowed. Extra files were skipped.`);
+      }
+      return next;
+    });
+  }, []);
+
+  const removeFormScreenshot = (localId) => {
+    setFormScreenshots((current) => {
+      const target = current.find((s) => s.localId === localId);
+      if (target?.url) {
+        setRemovedScreenshotUrls((prev) => [...prev, target.url]);
+      }
+      revokePreview(target);
+      return current.filter((s) => s.localId !== localId);
+    });
+  };
 
   async function loadBugs() {
     setLoading(true);
@@ -84,6 +155,7 @@ export default function BugDashboard() {
 
       const parsed = (data || []).map((b) => ({
         ...b,
+        screenshot_urls: normalizeScreenshotUrls(b.screenshot_urls),
         createdAt: b.created_at,
       }));
 
@@ -127,15 +199,32 @@ export default function BugDashboard() {
   }, []);
 
   useEffect(() => {
-    if (!selectedBugId && !pendingDelete) return undefined;
+    if (!showForm) return undefined;
+    const onPaste = (e) => {
+      const items = Array.from(e.clipboardData?.items || []);
+      const imageFiles = items
+        .filter((item) => item.type?.startsWith("image/"))
+        .map((item) => item.getAsFile())
+        .filter(Boolean);
+      if (!imageFiles.length) return;
+      e.preventDefault();
+      addScreenshotFiles(imageFiles);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [showForm, addScreenshotFiles]);
+
+  useEffect(() => {
+    if (!selectedBugId && !pendingDelete && !lightboxUrl) return undefined;
     const onKey = (e) => {
       if (e.key !== "Escape") return;
-      if (pendingDelete) setPendingDelete(null);
+      if (lightboxUrl) setLightboxUrl("");
+      else if (pendingDelete) setPendingDelete(null);
       else setSelectedBugId(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedBugId, pendingDelete]);
+  }, [selectedBugId, pendingDelete, lightboxUrl]);
 
   async function persist(updated) {
     setSaving(true);
@@ -162,22 +251,65 @@ export default function BugDashboard() {
       return;
     }
     setFormError("");
-    const payload = {
-      title: form.title.trim(),
-      description: form.description.trim(),
-      module: form.module.trim(),
-      severity: form.severity,
-      status: form.status,
-      reporter: form.reporter.trim(),
-      assignee: form.assignee.trim(),
-    };
     setSaving(true);
     try {
+      const bugId =
+        editingId || `BUG-${String(nextIdRef.current).padStart(4, "0")}`;
+
+      const newFiles = formScreenshots.filter((shot) => shot.file);
+      const incomingBytes = newFiles.reduce((sum, shot) => sum + (shot.file.size || 0), 0);
+      if (incomingBytes > 0) {
+        const prune = await ensureScreenshotStorageRoom({
+          incomingBytes,
+          protectPaths: formScreenshots
+            .map((shot) => shot.url && storagePathFromPublicUrl(shot.url))
+            .filter(Boolean),
+        });
+        if (prune.deletedUrls.length) {
+          const removed = new Set(prune.deletedUrls);
+          setBugs((current) =>
+            current.map((b) => ({
+              ...b,
+              screenshot_urls: normalizeScreenshotUrls(b.screenshot_urls).filter(
+                (url) => !removed.has(url)
+              ),
+            }))
+          );
+        }
+      }
+
+      const uploadedUrls = [];
+      for (const shot of formScreenshots) {
+        if (shot.url) {
+          uploadedUrls.push(shot.url);
+          continue;
+        }
+        if (shot.file) {
+          const url = await uploadScreenshot(bugId, shot.file);
+          uploadedUrls.push(url);
+        }
+      }
+
+      const payload = {
+        title: form.title.trim(),
+        description: form.description.trim(),
+        module: form.module.trim(),
+        severity: form.severity,
+        status: form.status,
+        reporter: form.reporter.trim(),
+        assignee: form.assignee.trim(),
+        screenshot_urls: uploadedUrls,
+      };
+
       if (editingId) {
         const previous = bugs;
         const updatedAt = new Date().toISOString();
         setBugs((current) =>
-          current.map((b) => (b.id === editingId ? { ...b, ...payload, updated_at: updatedAt } : b))
+          current.map((b) =>
+            b.id === editingId
+              ? { ...b, ...payload, updated_at: updatedAt }
+              : b
+          )
         );
         const { error } = await supabase
           .from("bugs")
@@ -187,11 +319,17 @@ export default function BugDashboard() {
           setBugs(previous);
           throw error;
         }
+        try {
+          if (removedScreenshotUrls.length) {
+            await deleteScreenshotUrls(removedScreenshotUrls);
+          }
+        } catch (cleanupErr) {
+          console.warn("Could not remove old screenshots from storage", cleanupErr);
+        }
       } else {
-        const id = `BUG-${String(nextIdRef.current).padStart(4, "0")}`;
         nextIdRef.current += 1;
         const newBug = {
-          id,
+          id: bugId,
           ...payload,
           createdAt: new Date().toISOString(),
         };
@@ -200,16 +338,27 @@ export default function BugDashboard() {
           ...payload,
           created_at: newBug.createdAt,
         });
-        if (error) throw error;
+        if (error) {
+          await deleteScreenshotUrls(uploadedUrls);
+          throw error;
+        }
         setBugs((current) => [newBug, ...current]);
       }
 
+      clearFormScreenshots();
       setForm(emptyForm);
       setEditingId(null);
       setShowForm(false);
     } catch (e) {
       console.error(e);
-      setError(editingId ? "Couldn't update the bug. Please try again." : "Couldn't save the bug. Please try again.");
+      const detail = e?.message || "";
+      if (String(detail).toLowerCase().includes("bucket") || String(detail).toLowerCase().includes("storage")) {
+        setFormError("Screenshot upload failed. Re-run supabase.sql so the bug-screenshots bucket exists.");
+      } else if (detail) {
+        setFormError(detail);
+      } else {
+        setError(editingId ? "Couldn't update the bug. Please try again." : "Couldn't save the bug. Please try again.");
+      }
     } finally {
       setSaving(false);
     }
@@ -220,6 +369,7 @@ export default function BugDashboard() {
     setEditingId(null);
     setForm(emptyForm);
     setFormError("");
+    clearFormScreenshots();
   }
 
   function startEdit(bug) {
@@ -233,6 +383,15 @@ export default function BugDashboard() {
       reporter: bug.reporter || "",
       assignee: bug.assignee || "",
     });
+    setFormScreenshots((current) => {
+      current.forEach(revokePreview);
+      return normalizeScreenshotUrls(bug.screenshot_urls).map((url, i) => ({
+        localId: `existing-${bug.id}-${i}`,
+        previewUrl: url,
+        url,
+      }));
+    });
+    setRemovedScreenshotUrls([]);
     setFormError("");
     setShowForm(true);
     setSelectedBugId(null);
@@ -281,12 +440,16 @@ export default function BugDashboard() {
   async function deleteBug(id) {
     setError("");
     const previous = bugs;
+    const target = bugs.find((b) => b.id === id);
     setBugs((current) => current.filter((b) => b.id !== id));
     setPendingDelete(null);
     if (selectedBugId === id) setSelectedBugId(null);
     try {
       const { error } = await supabase.from("bugs").delete().eq("id", id);
       if (error) throw error;
+      if (target?.screenshot_urls?.length) {
+        await deleteScreenshotUrls(target.screenshot_urls);
+      }
     } catch (e) {
       console.error(e);
       setBugs(previous);
@@ -388,6 +551,14 @@ export default function BugDashboard() {
         .bd-btn-danger { background: #E5484D; border-color: #E5484D; color: #fff; }
         .bd-btn-danger:hover { background: #C73D42; }
         .bd-detail { width: min(560px, 100%); max-height: min(86vh, 720px); overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
+        .bd-dropzone { border: 1px dashed var(--border); border-radius: 8px; padding: 16px; text-align: center; background: var(--panel-alt); cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+        .bd-dropzone:hover, .bd-dropzone.drag { border-color: var(--accent); background: #1A2433; }
+        .bd-shot-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .bd-shot-thumb { position: relative; width: 88px; height: 88px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: #0E1216; }
+        .bd-shot-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+        .bd-shot-remove { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 999px; border: none; background: rgba(8,10,14,0.8); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .bd-lightbox { position: fixed; inset: 0; z-index: 60; background: rgba(8,10,14,0.88); display: flex; align-items: center; justify-content: center; padding: 24px; }
+        .bd-lightbox img { max-width: min(96vw, 1100px); max-height: 90vh; object-fit: contain; border-radius: 8px; border: 1px solid var(--border); }
         .bd-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .bd-scrollbar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
       `}</style>
@@ -414,6 +585,7 @@ export default function BugDashboard() {
               setEditingId(null);
               setForm(emptyForm);
               setFormError("");
+              clearFormScreenshots();
               setShowForm((s) => !s);
             }}>
               <Plus size={14} /> Report bug
@@ -486,6 +658,68 @@ export default function BugDashboard() {
                 <label style={{ fontSize: 12, color: "var(--text-dim)", display: "block", marginBottom: 5 }}>Assignee (optional)</label>
                 <input className="bd-input" placeholder="Who's fixing it" value={form.assignee} onChange={(e) => setForm({ ...form, assignee: e.target.value })} />
               </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={{ fontSize: 12, color: "var(--text-dim)", display: "block", marginBottom: 5 }}>
+                  Screenshots ({formScreenshots.length}/{MAX_SCREENSHOTS})
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  multiple
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    addScreenshotFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <div
+                  className={`bd-dropzone${dragOver ? " drag" : ""}`}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    addScreenshotFiles(e.dataTransfer.files);
+                  }}
+                >
+                  <ImagePlus size={18} color="var(--accent)" style={{ marginBottom: 6 }} />
+                  <p style={{ margin: 0, fontSize: 13, color: "var(--text)" }}>
+                    Drop images here, click to browse, or paste (Ctrl+V / ⌘V)
+                  </p>
+                  <p style={{ margin: "6px 0 0", fontSize: 11, color: "var(--text-dim)" }}>
+                    PNG, JPEG, WebP, GIF · max 5 MB each · stored in Supabase (not Vercel)
+                  </p>
+                </div>
+                {formScreenshots.length > 0 && (
+                  <div className="bd-shot-grid">
+                    {formScreenshots.map((shot) => (
+                      <div key={shot.localId} className="bd-shot-thumb">
+                        <img
+                          src={shot.previewUrl}
+                          alt="Bug screenshot"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLightboxUrl(shot.previewUrl);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="bd-shot-remove"
+                          title="Remove screenshot"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeFormScreenshot(shot.localId);
+                          }}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             {formError && <p style={{ color: "#E5484D", fontSize: 13, margin: "0 0 10px" }}>{formError}</p>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -556,6 +790,7 @@ export default function BugDashboard() {
               const sev = sevMeta(bug.severity);
               const st = statusMeta(bug.status);
               const StIcon = st.icon;
+              const shotCount = normalizeScreenshotUrls(bug.screenshot_urls).length;
               return (
                 <div
                   key={bug.id}
@@ -569,7 +804,9 @@ export default function BugDashboard() {
                     <div>
                       <p style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>{bug.title}</p>
                       <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-dim)" }}>
-                        {bug.module || "General"}{bug.reporter ? ` · reported by ${bug.reporter}` : ""}
+                        {bug.module || "General"}
+                        {bug.reporter ? ` · reported by ${bug.reporter}` : ""}
+                        {shotCount ? ` · ${shotCount} screenshot${shotCount === 1 ? "" : "s"}` : ""}
                       </p>
                     </div>
                     <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45, color: bug.description ? "var(--text)" : "var(--text-dim)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -639,6 +876,7 @@ export default function BugDashboard() {
           const st = statusMeta(bug.status);
           const created = bug.createdAt || bug.created_at;
           const updated = bug.updated_at;
+          const shots = normalizeScreenshotUrls(bug.screenshot_urls);
           const field = (label, value) => (
             <div>
               <p style={{ margin: "0 0 4px", fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</p>
@@ -675,6 +913,28 @@ export default function BugDashboard() {
                     {field("Assignee", bug.assignee)}
                     {field("Created", created ? new Date(created).toLocaleString() : "")}
                     {field("Updated", updated ? new Date(updated).toLocaleString() : "")}
+                    <div>
+                      <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        Screenshots
+                      </p>
+                      {shots.length === 0 ? (
+                        <p style={{ margin: 0, fontSize: 14, color: "var(--text-dim)" }}>—</p>
+                      ) : (
+                        <div className="bd-shot-grid">
+                          {shots.map((url) => (
+                            <button
+                              key={url}
+                              type="button"
+                              className="bd-shot-thumb"
+                              style={{ padding: 0, cursor: "zoom-in" }}
+                              onClick={() => setLightboxUrl(url)}
+                            >
+                              <img src={url} alt="Bug screenshot" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -704,8 +964,22 @@ export default function BugDashboard() {
           </div>
         )}
 
+        {lightboxUrl && (
+          <div className="bd-lightbox" onClick={() => setLightboxUrl("")}>
+            <button
+              type="button"
+              onClick={() => setLightboxUrl("")}
+              style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#fff", cursor: "pointer" }}
+              aria-label="Close screenshot"
+            >
+              <X size={22} />
+            </button>
+            <img src={lightboxUrl} alt="Screenshot preview" onClick={(e) => e.stopPropagation()} />
+          </div>
+        )}
+
         <p style={{ fontSize: 11, color: "var(--text-dim)", textAlign: "center", marginTop: 24 }}>
-          This log is shared with everyone who opens this dashboard. Use "Export .xlsx" any time to download the current view as an Excel file.
+          This log is shared with everyone who opens this dashboard. Screenshots use Supabase Storage (~1 GB free); oldest images are auto-removed near that limit. Use "Export .xlsx" any time to download the current view as an Excel file.
         </p>
       </div>
     </div>

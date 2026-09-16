@@ -544,7 +544,7 @@ export default function BugDashboard() {
         .bd-filter-chips { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; flex: 1; }
         .bd-row { cursor: pointer; }
         .bd-row:hover { border-color: #3A4556; background: #1A212C; }
-        .bd-cols { display: grid; grid-template-columns: 90px minmax(160px, 0.7fr) minmax(220px, 1.3fr) 88px 148px 150px 64px; gap: 14px; align-items: start; min-width: 1070px; }
+        .bd-cols { display: grid; grid-template-columns: 90px minmax(150px, 0.7fr) minmax(200px, 1.2fr) 56px 88px 148px 150px 64px; gap: 14px; align-items: start; min-width: 1120px; }
         .bd-list-head { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); padding: 0 14px 8px 18px; }
         .bd-overlay { position: fixed; inset: 0; background: rgba(8, 10, 14, 0.72); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 40; }
         .bd-overlay-confirm { z-index: 50; }
@@ -780,6 +780,7 @@ export default function BugDashboard() {
               <span>ID</span>
               <span>Title</span>
               <span>Description</span>
+              <span>Shot</span>
               <span>Severity</span>
               <span>Assignee</span>
               <span>Status</span>
@@ -790,7 +791,9 @@ export default function BugDashboard() {
               const sev = sevMeta(bug.severity);
               const st = statusMeta(bug.status);
               const StIcon = st.icon;
-              const shotCount = normalizeScreenshotUrls(bug.screenshot_urls).length;
+              const shots = normalizeScreenshotUrls(bug.screenshot_urls);
+              const shotCount = shots.length;
+              const firstShot = shots[0] || "";
               return (
                 <div
                   key={bug.id}
@@ -812,6 +815,21 @@ export default function BugDashboard() {
                     <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45, color: bug.description ? "var(--text)" : "var(--text-dim)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                       {bug.description || "—"}
                     </p>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      {firstShot ? (
+                        <button
+                          type="button"
+                          className="bd-shot-thumb"
+                          style={{ width: 44, height: 44, padding: 0 }}
+                          title="View screenshot"
+                          onClick={() => setLightboxUrl(firstShot)}
+                        >
+                          <img src={firstShot} alt="" />
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: 12, color: "var(--text-dim)" }}>—</span>
+                      )}
+                    </div>
                     <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 999, background: sev.bg, color: sev.color, whiteSpace: "nowrap", alignSelf: "start" }}>
                       {bug.severity}
                     </span>
@@ -906,6 +924,26 @@ export default function BugDashboard() {
                     <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 999, background: sev.bg, color: sev.color }}>{bug.severity}</span>
                     <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--border)", color: st.color }}>{bug.status}</span>
                   </div>
+                  {shots.length > 0 && (
+                    <div style={{ marginBottom: 18 }}>
+                      <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        Screenshots
+                      </p>
+                      <div className="bd-shot-grid">
+                        {shots.map((url) => (
+                          <button
+                            key={url}
+                            type="button"
+                            className="bd-shot-thumb"
+                            style={{ padding: 0, cursor: "zoom-in", width: 120, height: 120 }}
+                            onClick={() => setLightboxUrl(url)}
+                          >
+                            <img src={url} alt="Bug screenshot" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div style={{ display: "grid", gap: 14 }}>
                     {field("Description", bug.description)}
                     {field("Module", bug.module)}
@@ -913,28 +951,6 @@ export default function BugDashboard() {
                     {field("Assignee", bug.assignee)}
                     {field("Created", created ? new Date(created).toLocaleString() : "")}
                     {field("Updated", updated ? new Date(updated).toLocaleString() : "")}
-                    <div>
-                      <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                        Screenshots
-                      </p>
-                      {shots.length === 0 ? (
-                        <p style={{ margin: 0, fontSize: 14, color: "var(--text-dim)" }}>—</p>
-                      ) : (
-                        <div className="bd-shot-grid">
-                          {shots.map((url) => (
-                            <button
-                              key={url}
-                              type="button"
-                              className="bd-shot-thumb"
-                              style={{ padding: 0, cursor: "zoom-in" }}
-                              onClick={() => setLightboxUrl(url)}
-                            >
-                              <img src={url} alt="Bug screenshot" />
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
                   </div>
                 </div>
               </div>

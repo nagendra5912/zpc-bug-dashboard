@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Bug, Plus, Download, Search, X, Trash2, CheckCircle2, Circle, Clock3, Loader2, UserCircle2, Pencil, ImagePlus } from "lucide-react";
+import { Bug, Plus, Download, Search, X, Trash2, CheckCircle2, Circle, Clock3, Loader2, UserCircle2, Pencil, ImagePlus, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "./supabase";
 import {
   MAX_SCREENSHOTS,
@@ -80,10 +80,28 @@ export default function BugDashboard() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [formScreenshots, setFormScreenshots] = useState([]);
   const [removedScreenshotUrls, setRemovedScreenshotUrls] = useState([]);
-  const [lightboxUrl, setLightboxUrl] = useState("");
+  const [lightbox, setLightbox] = useState(null); // { urls: string[], index: number }
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
   const nextIdRef = useRef(1);
+
+  const openLightbox = useCallback((urls, index = 0) => {
+    const list = (urls || []).filter(Boolean);
+    if (!list.length) return;
+    const safeIndex = Math.min(Math.max(0, index), list.length - 1);
+    setLightbox({ urls: list, index: safeIndex });
+  }, []);
+
+  const closeLightbox = useCallback(() => setLightbox(null), []);
+
+  const stepLightbox = useCallback((delta) => {
+    setLightbox((current) => {
+      if (!current?.urls?.length) return current;
+      const len = current.urls.length;
+      const next = (current.index + delta + len) % len;
+      return { ...current, index: next };
+    });
+  }, []);
 
   const revokePreview = (item) => {
     if (item?.file && item.previewUrl?.startsWith("blob:")) {
@@ -215,16 +233,32 @@ export default function BugDashboard() {
   }, [showForm, addScreenshotFiles]);
 
   useEffect(() => {
-    if (!selectedBugId && !pendingDelete && !lightboxUrl) return undefined;
+    if (!selectedBugId && !pendingDelete && !lightbox) return undefined;
     const onKey = (e) => {
+      if (lightbox) {
+        if (e.key === "Escape") {
+          closeLightbox();
+          return;
+        }
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          stepLightbox(-1);
+          return;
+        }
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          stepLightbox(1);
+          return;
+        }
+        return;
+      }
       if (e.key !== "Escape") return;
-      if (lightboxUrl) setLightboxUrl("");
-      else if (pendingDelete) setPendingDelete(null);
+      if (pendingDelete) setPendingDelete(null);
       else setSelectedBugId(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedBugId, pendingDelete, lightboxUrl]);
+  }, [selectedBugId, pendingDelete, lightbox, closeLightbox, stepLightbox]);
 
   async function persist(updated) {
     setSaving(true);
@@ -559,6 +593,11 @@ export default function BugDashboard() {
         .bd-shot-remove { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 999px; border: none; background: rgba(8,10,14,0.8); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         .bd-lightbox { position: fixed; inset: 0; z-index: 60; background: rgba(8,10,14,0.88); display: flex; align-items: center; justify-content: center; padding: 24px; }
         .bd-lightbox img { max-width: min(96vw, 1100px); max-height: 90vh; object-fit: contain; border-radius: 8px; border: 1px solid var(--border); }
+        .bd-lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.2); background: rgba(8,10,14,0.7); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 2; }
+        .bd-lightbox-nav:hover { background: rgba(30,38,52,0.95); }
+        .bd-lightbox-prev { left: 16px; }
+        .bd-lightbox-next { right: 16px; }
+        .bd-lightbox-count { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); margin: 0; font-size: 13px; color: #c8d0dc; font-family: var(--mono-font); z-index: 2; }
         .bd-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .bd-scrollbar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
       `}</style>
@@ -701,7 +740,10 @@ export default function BugDashboard() {
                           alt="Bug screenshot"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setLightboxUrl(shot.previewUrl);
+                            openLightbox(
+                              formScreenshots.map((s) => s.previewUrl),
+                              formScreenshots.findIndex((s) => s.localId === shot.localId)
+                            );
                           }}
                         />
                         <button
@@ -822,7 +864,7 @@ export default function BugDashboard() {
                           className="bd-shot-thumb"
                           style={{ width: 44, height: 44, padding: 0 }}
                           title="View screenshot"
-                          onClick={() => setLightboxUrl(firstShot)}
+                          onClick={() => openLightbox(shots, 0)}
                         >
                           <img src={firstShot} alt="" />
                         </button>
@@ -936,7 +978,7 @@ export default function BugDashboard() {
                             type="button"
                             className="bd-shot-thumb"
                             style={{ padding: 0, cursor: "zoom-in", width: 120, height: 120 }}
-                            onClick={() => setLightboxUrl(url)}
+                            onClick={() => openLightbox(shots, shots.indexOf(url))}
                           >
                             <img src={url} alt="Bug screenshot" />
                           </button>
@@ -980,17 +1022,50 @@ export default function BugDashboard() {
           </div>
         )}
 
-        {lightboxUrl && (
-          <div className="bd-lightbox" onClick={() => setLightboxUrl("")}>
+        {lightbox && lightbox.urls[lightbox.index] && (
+          <div className="bd-lightbox" onClick={closeLightbox}>
             <button
               type="button"
-              onClick={() => setLightboxUrl("")}
-              style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#fff", cursor: "pointer" }}
+              onClick={closeLightbox}
+              style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#fff", cursor: "pointer", zIndex: 2 }}
               aria-label="Close screenshot"
             >
               <X size={22} />
             </button>
-            <img src={lightboxUrl} alt="Screenshot preview" onClick={(e) => e.stopPropagation()} />
+            {lightbox.urls.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="bd-lightbox-nav bd-lightbox-prev"
+                  aria-label="Previous screenshot"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    stepLightbox(-1);
+                  }}
+                >
+                  <ChevronLeft size={28} />
+                </button>
+                <button
+                  type="button"
+                  className="bd-lightbox-nav bd-lightbox-next"
+                  aria-label="Next screenshot"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    stepLightbox(1);
+                  }}
+                >
+                  <ChevronRight size={28} />
+                </button>
+                <p className="bd-lightbox-count">
+                  {lightbox.index + 1} / {lightbox.urls.length}
+                </p>
+              </>
+            )}
+            <img
+              src={lightbox.urls[lightbox.index]}
+              alt={`Screenshot ${lightbox.index + 1} of ${lightbox.urls.length}`}
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
         )}
 
